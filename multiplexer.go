@@ -22,20 +22,24 @@ type Multiplexer struct {
         send func([]byte)
         receiveStreams map[byte]*ReceiveStream
         streamCallback func(omnicore.Producer)
+        controlMessageCallback func(message []byte)
+}
+
+func (m *Multiplexer) OnControlMessage(callback func(message []byte)) {
+        m.controlMessageCallback = callback
 }
 
 func (m *Multiplexer) SendControlMessage(message []byte) {
-        var reqMsg [2]byte
+        var reqMsg [1]byte
         reqMsg[0] = MESSAGE_TYPE_CONTROL_MESSAGE
-        reqMsg[1] = 22
-        m.send(reqMsg[:])
+        m.send(append(reqMsg[:], message...))
 }
 
 func (m *Multiplexer) HandleMessage(message []byte) {
         messageType := message[0]
 
         if messageType == MESSAGE_TYPE_CONTROL_MESSAGE {
-                log.Println("Control message")
+                m.controlMessageCallback(message[1:])
         } else {
                 streamId := message[1]
                 switch messageType {
