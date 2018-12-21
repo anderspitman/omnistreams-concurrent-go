@@ -2,7 +2,6 @@ package omniconc
 
 import (
         "log"
-        "net/http"
         "github.com/anderspitman/omnistreams-core-go"
 )
 
@@ -96,12 +95,4 @@ func (s *ReceiveStream) OnEnd(callback func()) {
 
 func (s *ReceiveStream) Request(numElements uint8) {
         s.request(numElements)
-}
-
-type WebSocketMuxAcceptor struct {
-        httpHandler func(http.ResponseWriter, *http.Request)
-}
-
-func (m *WebSocketMuxAcceptor) GetHttpHandler() func(http.ResponseWriter, *http.Request) {
-        return m.httpHandler
 }

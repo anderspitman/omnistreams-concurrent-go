@@ -3,73 +3,85 @@ package omniconc
 import (
         "log"
         "net/http"
-        "github.com/anderspitman/omnistreams-core-go"
         "github.com/gorilla/websocket"
 )
 
+
+type WebSocketMuxAcceptor struct {
+        httpHandler func(http.ResponseWriter, *http.Request)
+        muxCallback func(mux *Multiplexer)
+}
+
+func (m *WebSocketMuxAcceptor) GetHttpHandler() func(http.ResponseWriter, *http.Request) {
+        return m.httpHandler
+}
+
+func (m *WebSocketMuxAcceptor) OnMux(callback func(mux *Multiplexer)) {
+        m.muxCallback = callback
+}
+
+
 var upgrader = websocket.Upgrader{}
 
-func CreateWebSocketMuxAcceptor() WebSocketMuxAcceptor {
+func CreateWebSocketMuxAcceptor() *WebSocketMuxAcceptor {
         upgrader.CheckOrigin = func(r *http.Request) bool {
                 return true
         }
 
-        return WebSocketMuxAcceptor {
-                httpHandler: wsHttpHandler,
-        }
-}
+        muxChan := make(chan *Multiplexer)
 
-func wsHttpHandler(w http.ResponseWriter, r *http.Request) {
+        var wsHttpHandler = func(w http.ResponseWriter, r *http.Request) {
 
-        wsConn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Print("upgrade:", err)
-		return
-	}
-        defer wsConn.Close()
+                wsConn, err := upgrader.Upgrade(w, r, nil)
+                if err != nil {
+                        log.Print("upgrade:", err)
+                        return
+                }
+                defer wsConn.Close()
 
-        writeChan := make(chan []byte)
+                writeChan := make(chan []byte)
 
-        mux := CreateMultiplexer()
+                mux := CreateMultiplexer()
+                muxChan <- &mux
 
-        mux.SetSendHandler(func(message []byte) {
-                writeChan <- message
-        })
-
-        mux.OnStream(func(stream omnicore.Producer) {
-
-                log.Println("Got a streamy")
-
-                stream.OnData(func(data []byte) {
-                        log.Println(len(data))
-                        stream.Request(1)
+                mux.SetSendHandler(func(message []byte) {
+                        writeChan <- message
                 })
 
-                stream.OnEnd(func() {
-                        log.Println("end streamy")
-                        mux.SendControlMessage([]byte("hi there"))
-                })
+                writeMessages := func() {
+                        for message := range writeChan {
+                                if err := wsConn.WriteMessage(websocket.BinaryMessage, message); err != nil {
+                                        log.Println(err)
+                                        return
+                                }
+                        }
+                }
+                go writeMessages()
 
-                stream.Request(10)
-        })
-
-        writeMessages := func() {
-                for message := range writeChan {
-                        if err := wsConn.WriteMessage(websocket.BinaryMessage, message); err != nil {
+                for {
+                        _, p, err := wsConn.ReadMessage()
+                        if err != nil {
                                 log.Println(err)
                                 return
                         }
+
+                        mux.HandleMessage(p)
                 }
         }
-        go writeMessages()
 
-        for {
-                _, p, err := wsConn.ReadMessage()
-                if err != nil {
-                        log.Println(err)
-                        return
-                }
-
-                mux.HandleMessage(p)
+        muxAcceptor := WebSocketMuxAcceptor {
+                httpHandler: wsHttpHandler,
         }
+
+        passMuxes := func() {
+                for mux := range muxChan {
+                        log.Println(muxAcceptor.muxCallback)
+                        muxAcceptor.muxCallback(mux)
+                }
+        }
+        go passMuxes()
+
+        return &muxAcceptor
 }
+
+
