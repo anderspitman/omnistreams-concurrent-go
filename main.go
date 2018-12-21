@@ -2,6 +2,7 @@ package omniconc
 
 import (
         "log"
+        "net/http"
         "github.com/anderspitman/omnistreams-core-go"
 )
 
@@ -12,26 +13,26 @@ const MESSAGE_TYPE_TERMINATE_SEND_STREAM = 3
 const MESSAGE_TYPE_STREAM_REQUEST_DATA = 4
 const MESSAGE_TYPE_CONTROL_MESSAGE = 5
 
-func CreateConnection() Connection {
-        return Connection{
+func CreateMultiplexer() Multiplexer {
+        return Multiplexer{
                 receiveStreams: make(map[byte]*ReceiveStream),
         }
 }
 
-type Connection struct {
+type Multiplexer struct {
         send func([]byte)
         receiveStreams map[byte]*ReceiveStream
         streamCallback func(omnicore.Producer)
 }
 
-func (c *Connection) SendControlMessage(message []byte) {
+func (m *Multiplexer) SendControlMessage(message []byte) {
         var reqMsg [2]byte
         reqMsg[0] = MESSAGE_TYPE_CONTROL_MESSAGE
         reqMsg[1] = 22
-        c.send(reqMsg[:])
+        m.send(reqMsg[:])
 }
 
-func (c *Connection) HandleMessage(message []byte) {
+func (m *Multiplexer) HandleMessage(message []byte) {
         messageType := message[0]
 
         if messageType == MESSAGE_TYPE_CONTROL_MESSAGE {
@@ -48,17 +49,17 @@ func (c *Connection) HandleMessage(message []byte) {
                                 reqMsg[1] = streamId
                                 reqMsg[2] = numElements
                                 //binary.BigEndian.PutUint32(reqMsg[2:], numElements)
-                                c.send(reqMsg[:])
+                                m.send(reqMsg[:])
                         }
-                        c.receiveStreams[streamId] = &stream
-                        c.streamCallback(&stream)
+                        m.receiveStreams[streamId] = &stream
+                        m.streamCallback(&stream)
                 case MESSAGE_TYPE_STREAM_DATA:
                         //log.Printf("Data for stream: %d\n", streamId)
-                        stream := c.receiveStreams[streamId]
+                        stream := m.receiveStreams[streamId]
                         stream.dataCallback(message[2:])
                 case MESSAGE_TYPE_STREAM_END:
                         log.Printf("End stream: %d\n", streamId)
-                        stream := c.receiveStreams[streamId]
+                        stream := m.receiveStreams[streamId]
                         stream.endCallback()
                 case MESSAGE_TYPE_TERMINATE_SEND_STREAM:
                         log.Printf("Terminate stream: %d\n", streamId)
@@ -70,12 +71,12 @@ func (c *Connection) HandleMessage(message []byte) {
         }
 }
 
-func (c *Connection) SetSendHandler(callback func([]byte)) {
-        c.send = callback
+func (m *Multiplexer) SetSendHandler(callback func([]byte)) {
+        m.send = callback
 }
 
-func (c *Connection) OnStream(callback func(omnicore.Producer)) {
-        c.streamCallback = callback
+func (m *Multiplexer) OnStream(callback func(omnicore.Producer)) {
+        m.streamCallback = callback
 }
 
 
@@ -95,4 +96,12 @@ func (s *ReceiveStream) OnEnd(callback func()) {
 
 func (s *ReceiveStream) Request(numElements uint8) {
         s.request(numElements)
+}
+
+type WebSocketMuxAcceptor struct {
+        httpHandler func(http.ResponseWriter, *http.Request)
+}
+
+func (m *WebSocketMuxAcceptor) GetHttpHandler() func(http.ResponseWriter, *http.Request) {
+        return m.httpHandler
 }
