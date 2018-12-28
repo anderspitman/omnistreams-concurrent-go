@@ -21,7 +21,7 @@ func CreateMultiplexer() Multiplexer {
 type Multiplexer struct {
         send func([]byte)
         receiveStreams map[byte]*ReceiveStream
-        streamCallback func(omnicore.Producer)
+        conduitCallback func(producer omnicore.Producer, metadata []byte)
         controlMessageCallback func(message []byte)
 }
 
@@ -44,9 +44,9 @@ func (m *Multiplexer) HandleMessage(message []byte) {
                 streamId := message[1]
                 switch messageType {
                 case MESSAGE_TYPE_CREATE_RECEIVE_STREAM:
-                        log.Printf("Create stream: %d\n", streamId)
-                        stream := ReceiveStream{}
-                        stream.request = func(numElements uint8) {
+                        log.Printf("Create conduit: %d\n", streamId)
+                        producer := ReceiveStream{}
+                        producer.request = func(numElements uint8) {
                                 var reqMsg [6]byte
                                 reqMsg[0] = MESSAGE_TYPE_STREAM_REQUEST_DATA
                                 reqMsg[1] = streamId
@@ -54,8 +54,8 @@ func (m *Multiplexer) HandleMessage(message []byte) {
                                 //binary.BigEndian.PutUint32(reqMsg[2:], numElements)
                                 m.send(reqMsg[:])
                         }
-                        m.receiveStreams[streamId] = &stream
-                        m.streamCallback(&stream)
+                        m.receiveStreams[streamId] = &producer
+                        m.conduitCallback(&producer, message[2:])
                 case MESSAGE_TYPE_STREAM_DATA:
                         //log.Printf("Data for stream: %d\n", streamId)
                         stream := m.receiveStreams[streamId]
@@ -78,8 +78,8 @@ func (m *Multiplexer) SetSendHandler(callback func([]byte)) {
         m.send = callback
 }
 
-func (m *Multiplexer) OnStream(callback func(omnicore.Producer)) {
-        m.streamCallback = callback
+func (m *Multiplexer) OnConduit(callback func(producer omnicore.Producer, metadata []byte)) {
+        m.conduitCallback = callback
 }
 
 
