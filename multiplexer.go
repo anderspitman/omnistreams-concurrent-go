@@ -44,7 +44,6 @@ func (m *Multiplexer) HandleMessage(message []byte) {
                 streamId := message[1]
                 switch messageType {
                 case MESSAGE_TYPE_CREATE_RECEIVE_STREAM:
-                        log.Printf("Create conduit: %d\n", streamId)
                         producer := ReceiveStream{}
                         producer.request = func(numElements uint8) {
                                 var reqMsg [6]byte
@@ -59,7 +58,8 @@ func (m *Multiplexer) HandleMessage(message []byte) {
                 case MESSAGE_TYPE_STREAM_DATA:
                         //log.Printf("Data for stream: %d\n", streamId)
                         stream := m.receiveStreams[streamId]
-                        stream.dataCallback(message[2:])
+                        // TODO: reconsider if this is safe to call in a goroutine
+                        go stream.dataCallback(message[2:])
                 case MESSAGE_TYPE_STREAM_END:
                         log.Printf("End stream: %d\n", streamId)
                         stream := m.receiveStreams[streamId]
