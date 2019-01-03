@@ -1,6 +1,7 @@
 package omniconc
 
 import (
+        //"fmt"
         "log"
         "github.com/anderspitman/omnistreams-core-go"
 )
@@ -45,16 +46,16 @@ func (m *Multiplexer) HandleMessage(message []byte) {
                 switch messageType {
                 case MESSAGE_TYPE_CREATE_RECEIVE_STREAM:
                         producer := ReceiveStream{}
-                        producer.request = func(numElements uint8) {
+                        producer.upstreamRequest = func(numElements uint32) {
                                 var reqMsg [3]byte
                                 reqMsg[0] = MESSAGE_TYPE_STREAM_REQUEST_DATA
                                 reqMsg[1] = streamId
-                                reqMsg[2] = numElements
+                                reqMsg[2] = uint8(numElements)
                                 //binary.BigEndian.PutUint32(reqMsg[2:], numElements)
                                 m.send(reqMsg[:])
                         }
 
-                        producer.cancel = func() {
+                        producer.upstreamCancel = func() {
                                 var reqMsg [2]byte
                                 reqMsg[0] = MESSAGE_TYPE_CANCEL_STREAM
                                 reqMsg[1] = streamId
@@ -90,10 +91,15 @@ func (m *Multiplexer) OnConduit(callback func(producer omnicore.Producer, metada
 
 
 type ReceiveStream struct {
-        request func(uint8)
+        upstreamRequest func(uint32)
         dataCallback func([]byte)
         endCallback func()
-        cancel func()
+        upstreamCancel func()
+        cancelCallback func()
+}
+
+func (s *ReceiveStream) Request(numElements uint32) {
+        s.upstreamRequest(numElements)
 }
 
 func (s *ReceiveStream) OnData(callback func([]byte)) {
@@ -104,10 +110,36 @@ func (s *ReceiveStream) OnEnd(callback func()) {
         s.endCallback = callback
 }
 
-func (s *ReceiveStream) Request(numElements uint8) {
-        s.request(numElements)
+func (s *ReceiveStream) Pipe(consumer omnicore.Consumer) {
+
+        s.OnData(func(data []byte) {
+                consumer.Write(data)
+        })
+
+        // TODO: consider this interface. If there's already an onEnd listener
+        // on the producer it won't get the notification
+        s.OnEnd(func() {
+                consumer.End()
+        })
+
+        s.OnCancel(func() {
+                consumer.Cancel()
+        })
+
+        consumer.OnRequest(func(numElements uint32) {
+                s.Request(numElements)
+        })
+
+        consumer.OnCancel(func() {
+                s.upstreamCancel()
+        })
 }
 
 func (s *ReceiveStream) Cancel() {
-        s.cancel()
+        s.upstreamCancel()
+        s.cancelCallback()
+}
+
+func (s *ReceiveStream) OnCancel(callback func()) {
+        s.cancelCallback = callback
 }
