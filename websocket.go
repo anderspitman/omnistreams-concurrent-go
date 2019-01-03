@@ -75,7 +75,6 @@ func CreateWebSocketMuxAcceptor() *WebSocketMuxAcceptor {
 
         passMuxes := func() {
                 for mux := range muxChan {
-                        log.Println(muxAcceptor.muxCallback)
                         muxAcceptor.muxCallback(mux)
                 }
         }

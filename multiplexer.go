@@ -8,7 +8,7 @@ import (
 const MESSAGE_TYPE_CREATE_RECEIVE_STREAM = 0
 const MESSAGE_TYPE_STREAM_DATA = 1
 const MESSAGE_TYPE_STREAM_END = 2
-const MESSAGE_TYPE_TERMINATE_SEND_STREAM = 3
+const MESSAGE_TYPE_CANCEL_STREAM = 3
 const MESSAGE_TYPE_STREAM_REQUEST_DATA = 4
 const MESSAGE_TYPE_CONTROL_MESSAGE = 5
 
@@ -46,11 +46,18 @@ func (m *Multiplexer) HandleMessage(message []byte) {
                 case MESSAGE_TYPE_CREATE_RECEIVE_STREAM:
                         producer := ReceiveStream{}
                         producer.request = func(numElements uint8) {
-                                var reqMsg [6]byte
+                                var reqMsg [3]byte
                                 reqMsg[0] = MESSAGE_TYPE_STREAM_REQUEST_DATA
                                 reqMsg[1] = streamId
                                 reqMsg[2] = numElements
                                 //binary.BigEndian.PutUint32(reqMsg[2:], numElements)
+                                m.send(reqMsg[:])
+                        }
+
+                        producer.cancel = func() {
+                                var reqMsg [2]byte
+                                reqMsg[0] = MESSAGE_TYPE_CANCEL_STREAM
+                                reqMsg[1] = streamId
                                 m.send(reqMsg[:])
                         }
                         m.receiveStreams[streamId] = &producer
@@ -58,13 +65,12 @@ func (m *Multiplexer) HandleMessage(message []byte) {
                 case MESSAGE_TYPE_STREAM_DATA:
                         //log.Printf("Data for stream: %d\n", streamId)
                         stream := m.receiveStreams[streamId]
-                        // TODO: reconsider if this is safe to call in a goroutine
-                        go stream.dataCallback(message[2:])
+                        stream.dataCallback(message[2:])
                 case MESSAGE_TYPE_STREAM_END:
                         log.Printf("End stream: %d\n", streamId)
                         stream := m.receiveStreams[streamId]
                         stream.endCallback()
-                case MESSAGE_TYPE_TERMINATE_SEND_STREAM:
+                case MESSAGE_TYPE_CANCEL_STREAM:
                         log.Printf("Terminate stream: %d\n", streamId)
                 case MESSAGE_TYPE_STREAM_REQUEST_DATA:
                         log.Printf("Data requested for stream: %d\n", streamId)
@@ -87,6 +93,7 @@ type ReceiveStream struct {
         request func(uint8)
         dataCallback func([]byte)
         endCallback func()
+        cancel func()
 }
 
 func (s *ReceiveStream) OnData(callback func([]byte)) {
@@ -99,4 +106,8 @@ func (s *ReceiveStream) OnEnd(callback func()) {
 
 func (s *ReceiveStream) Request(numElements uint8) {
         s.request(numElements)
+}
+
+func (s *ReceiveStream) Cancel() {
+        s.cancel()
 }
